@@ -45,7 +45,7 @@ def sample_supervised_data(supervised_seed,
   supervised_random_state = np.random.RandomState(supervised_seed)
   sampled_factors = ground_truth_data.sample_factors(num_labelled_samples,
                                                      supervised_random_state)
-  sampled_observations = ground_truth_data.sample_observations_from_factors(
+  sampled_factors, sampled_observations = ground_truth_data.sample_observations_from_factors(
       sampled_factors, supervised_random_state)
   sampled_factors, factor_sizes = make_labeller(sampled_factors,
                                                 ground_truth_data,

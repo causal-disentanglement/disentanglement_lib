@@ -23,6 +23,7 @@ from disentanglement_lib.data.ground_truth import dummy_data
 from disentanglement_lib.data.ground_truth import mpi3d
 from disentanglement_lib.data.ground_truth import norb
 from disentanglement_lib.data.ground_truth import shapes3d
+from disentanglement_lib.data.ground_truth import causal_dataset
 import gin.tf
 
 
@@ -36,7 +37,8 @@ def get_named_ground_truth_data(name):
   Raises:
     ValueError: if an invalid data set name is provided.
   """
-
+  if name == 'causal_dataset':
+    return causal_dataset.CausalDataset()
   if name == "dsprites_full":
     return dsprites.DSprites([1, 2, 3, 4, 5])
   elif name == "dsprites_noshape":

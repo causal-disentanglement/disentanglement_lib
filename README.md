@@ -1,3 +1,26 @@
+# CANDLE Experiments
+This repository contains reproducible experiments run on the [CANDLE](https://causal-disentanglement.github.io/CANDLE/) dataset. The experiments extend [disentanglement_lib](https://github.com/google-research/disentanglement_lib/).
+
+## Setup
+1. Install this fork using the [instructions](#usage).
+
+2. Download the [CANDLE](https://causal-disentanglement.github.io/CANDLE/) dataset and set the `path` variable in `disentanglement_lib/data/ground_truth/causal_dataset.py` to the path where the dataset was downloaded.
+
+3. Select/import the requied disentanglement method to run from `examples/example.py`.
+
+4. Hyperparameters can be modified at `examples/model.gin`.
+    - `reconstructions_path` - trained disentanglement model - same reference in `examples/example.py` with the variable name `base_path`
+    - `model` - pre-trained classifier to predict generative factors given an image
+
+5. Appropriately set the the variables `model`, `rho`, `path_to_save_images` and `reconstructions_path` in `disentanglement_lib/evaluation/metrics/irs.py`.
+
+6. Go to `examples` and run
+    ```python
+    python examples.py
+    ```
+
+Note: Pre-trained classifier used in evaluating CG score is already provided in `disentanglement_lib/methods/trained_models`. One can train a new model for this task or use it as is.
+
 # disentanglement_lib
 ![Sample visualization](https://github.com/google-research/disentanglement_lib/blob/master/sample.gif?raw=true)
 
@@ -34,7 +57,7 @@ At the end, they can be aggregated in a single JSON file and analyzed with Panda
 First, clone this repository with
 
 ```
-git clone https://github.com/google-research/disentanglement_lib.git
+git clone https://github.com/causal-disentanglement/disentanglement_lib.git
 ```
 
 Then, navigate to the repository (with `cd disentanglement_lib`) and run

@@ -13,16 +13,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-dataset.name = "dsprites_full"
+dataset.name = "causal_dataset"
 model.batch_size = 64
-model.model = @vae()
-model.random_seed = 0
-vae.beta = 4
-encoder.num_latent = 10
+model.model = @s2_factor_vae_cg
+# model.random_seed = 0
+
+vae.beta = 10
+
+beta_tc_vae.beta = 10.
+
+dip_vae.dip_type='i'
+dip_vae.lambda_d_factor=10
+dip_vae.lambda_od=10
+
+factor_vae.gamma=4
+
+encoder.num_latent = 64
+model.training_steps = 30000
+
 vae_optimizer.optimizer_fn = @AdamOptimizer
-# We train for only 5 steps, in practice we train for 300000 steps.
-model.training_steps = 5
-model.random_seed=0
 AdamOptimizer.beta1 = 0.9
 AdamOptimizer.beta2 = 0.999
 AdamOptimizer.epsilon = 1e-08
@@ -32,3 +41,35 @@ AdamOptimizer.use_locking = False
 encoder.encoder_fn = @conv_encoder
 decoder.decoder_fn = @deconv_decoder
 reconstruction_loss.loss_fn = @bernoulli_loss
+discriminator.discriminator_fn = @fc_discriminator
+discriminator_optimizer.optimizer_fn = @AdamOptimizer
+
+model.num_labelled_samples = 1246
+model.train_percentage = 0.9
+s2_vae.beta = 10
+s2_vae.gamma_sup = 4
+s2_vae.factor_sizes = [5, 5, 3, 6, 16, 3]
+
+annealer.iteration_threshold = 1
+model.model_seed = 0
+model.unsupervised_data_seed = 0
+model.supervised_data_seed = 0
+model.num_labelled_samples = 100
+model.train_percentage = 0.9
+labeller.labeller_fn = @perfect_labeller
+annealer.anneal_fn = @fixed
+supervised_loss.loss_fn = @xent
+s2_beta_tc_vae.beta = 10
+s2_beta_tc_vae.gamma_sup = 4
+s2_dip_vae.lambda_d_factor = 10
+s2_dip_vae.dip_type = 'i'
+s2_dip_vae.lambda_od = 10.
+s2_dip_vae.gamma_sup = 4
+s2_factor_vae.gamma = 4
+s2_factor_vae.gamma_sup = 4
+
+s2_factor_vae_cg.gamma = 4
+s2_factor_vae_cg.gamma_sup = 4
+
+annealer.iteration_threshold = 1
+

@@ -59,7 +59,7 @@ def bernoulli_loss(true_images,
   else:
     raise NotImplementedError("Activation not supported.")
 
-  return loss - loss_lower_bound
+  return (loss - loss_lower_bound)
 
 
 @gin.configurable("l2_loss", whitelist=[])
@@ -86,3 +86,14 @@ def make_reconstruction_loss(true_images,
   with tf.variable_scope("reconstruction_loss"):
     per_sample_loss = loss_fn(true_images, reconstructed_images, activation)
   return per_sample_loss
+
+@gin.configurable(
+    "reconstruction_loss_bounding", blacklist=["true_images", "reconstructed_images"])
+def make_reconstruction_loss_bounding(true_images,
+                             reconstructed_images,
+                             loss_fn=gin.REQUIRED,
+                             activation="logits"):
+    """Wrapper that creates reconstruction loss."""
+    with tf.variable_scope("reconstruction_loss_bounding"):
+        per_sample_loss = loss_fn(true_images, reconstructed_images, activation)
+    return per_sample_loss

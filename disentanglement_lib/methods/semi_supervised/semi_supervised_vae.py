@@ -30,16 +30,70 @@ from disentanglement_lib.methods.unsupervised import vae
 import numpy as np
 from six.moves import zip
 import tensorflow.compat.v1 as tf
-
+import os, json
+from PIL import Image
 import gin.tf
 from tensorflow_estimator.python.estimator.tpu.tpu_estimator import TPUEstimatorSpec
+
+
+num_images = 21600
+
+def get_images():
+    user = os.environ.get("USER")
+    path = "/home/{}/disentanglement_lib_cg/images_confounding/".format(user)
+    image_ids = []
+    data_images = []
+    bounds = []
+    originals = []    
+    for _ in range(num_images):
+        if not os.path.isfile(path + str(_) + '.json'):
+            continue
+        with open(path + str(_) + '.json') as fp:
+            obj = json.load(fp)
+            image_ids.append(_)
+            img = Image.open(path + str(_) + '.png')
+            originals.append(np.array(img)[:, :, :3]/255.)
+            img = img.resize((64, 64), Image.ANTIALIAS)
+            data_images.append(np.array(img)[:, :, :3] / 255.)
+            ob = {}
+            ob['scene'] = obj['scene']
+            te = obj['objects'][list(obj['objects'].keys())[0]]
+            ob['object'] = te['object_type']
+            ob['color'] = te['color']
+            ob['size'] = te['size']
+            ob['rotation'] = te['rotation']
+            ob['light'] = obj['lights']
+            bounds.append(te['bounds'])
+    weights = []
+
+    for i in range(len(data_images)):
+        weight = np.zeros((240, 320, 3))
+        x1 = bounds[i][0][0]
+        y1 = bounds[i][0][1]
+        x2 = bounds[i][1][0]
+        y2 = bounds[i][1][1]
+        
+        weight[240-y2:240-y1, x1:x2, :] = np.ones((240,320,3))[240-y2:240-y1, x1:x2, :] # np.array(images[i])[240-y2:240-y1, x1:x2, :]  # 
+        weights.append(np.array(Image.fromarray(np.uint8(weight)).convert('RGB').resize((64, 64), Image.ANTIALIAS)))
+    return np.array(originals), np.array(data_images), np.array(bounds), np.array(weights)
+
+def get_bounding_boxes(originals, smalls, bounds, weights, batch_size):
+    idx = np.random.choice(np.arange(originals.shape[0]), batch_size, replace=False)
+    images = originals[idx]
+    bounding_boxes = bounds[idx]
+    small_images = smalls[idx]
+    weights = weights[idx]
+
+    return tf.convert_to_tensor(small_images, dtype=tf.float32), tf.convert_to_tensor(np.array(weights), dtype=tf.float32)
 
 
 class BaseS2VAE(vae.BaseVAE):
   """Abstract base class of a basic semi-supervised Gaussian encoder model."""
 
-  def __init__(self, factor_sizes):
+  def __init__(self, factor_sizes,bounding_box=False):
     self.factor_sizes = factor_sizes
+    self.bounding_box = bounding_box
+    print("bounding box: ", self.bounding_box)
 
   def model_fn(self, features, labels, mode, params):
     """TPUEstimator compatible model function.
@@ -62,19 +116,29 @@ class BaseS2VAE(vae.BaseVAE):
     with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
       z_mean, z_logvar = self.gaussian_encoder(
           features, is_training=is_training)
-      z_mean_labelled, _ = self.gaussian_encoder(
+      z_mean_labelled, z_mean_labelled_var = self.gaussian_encoder(
           labelled_features, is_training=is_training)
     z_sampled = self.sample_from_latent_distribution(z_mean, z_logvar)
+
     reconstructions = self.decode(z_sampled, data_shape, is_training)
     per_sample_loss = losses.make_reconstruction_loss(features, reconstructions)
     reconstruction_loss = tf.reduce_mean(per_sample_loss)
+    if self.bounding_box:
+        z_sampled_bounding = self.sample_from_latent_distribution(z_mean_labelled, z_mean_labelled_var)
+        reconstructions_bounding = self.decode(z_sampled_bounding, data_shape, is_training)
+        per_sample_loss_bounding = losses.make_reconstruction_loss_bounding(labelled_features, reconstructions_bounding)
+        reconstruction_loss_bounding = tf.reduce_mean(per_sample_loss_bounding)
     kl_loss = compute_gaussian_kl(z_mean, z_logvar)
     gamma_annealed = make_annealer(self.gamma_sup, tf.train.get_global_step())
     supervised_loss = make_supervised_loss(z_mean_labelled, labels,
                                            self.factor_sizes)
     regularizer = self.unsupervised_regularizer(
         kl_loss, z_mean, z_logvar, z_sampled) + gamma_annealed * supervised_loss
-    loss = tf.add(reconstruction_loss, regularizer, name="loss")
+    if self.bounding_box:
+        temp = tf.add(reconstruction_loss, regularizer, name="temp")
+        loss = tf.add(temp, reconstruction_loss_bounding, name='loss')
+    else:
+        loss = tf.add(reconstruction_loss, regularizer, name="loss")
     elbo = tf.add(reconstruction_loss, kl_loss, name="elbo")
     if mode == tf.estimator.ModeKeys.TRAIN:
       optimizer = optimizers.make_vae_optimizer()
@@ -90,8 +154,8 @@ class BaseS2VAE(vae.BaseVAE):
           "reconstruction_loss": reconstruction_loss,
           "elbo": -elbo,
           "supervised_loss": supervised_loss
-      },
-                                                every_n_iter=100)
+      }, every_n_iter=100)
+    
       return TPUEstimatorSpec(
           mode=mode,
           loss=loss,
@@ -356,6 +420,33 @@ def supervised_regularizer_embed(representation, labels,
     loss += [tf.losses.softmax_cross_entropy(one_hot_labels, logits)]
   return tf.reduce_sum(tf.add_n(loss))
 
+@gin.configurable("s2_vae_cg")
+class S2BetaVAE_CG(BaseS2VAE):
+    """Semi-supervised BetaVAE model with more weight for bounding box."""
+
+    def __init__(self, factor_sizes, beta=gin.REQUIRED, gamma_sup=gin.REQUIRED):
+        """Creates a semi-supervised beta-VAE model.
+
+        Implementing Eq. 4 of "beta-VAE: Learning Basic Visual Concepts with a
+        Constrained Variational Framework"
+        (https://openreview.net/forum?id=Sy2fzU9gl) with additional supervision.
+
+        Args:
+          factor_sizes: Size of each factor of variation.
+          beta: Hyperparameter for the unsupervised regularizer.
+          gamma_sup: Hyperparameter for the supervised regularizer.
+
+        Returns:
+          model_fn: Model function for TPUEstimator.
+        """
+        self.beta = beta
+        self.gamma_sup = gamma_sup
+        super(S2BetaVAE_CG, self).__init__(factor_sizes, bounding_box=False)
+
+    def unsupervised_regularizer(self, kl_loss, z_mean, z_logvar, z_sampled):
+        """Standard betaVAE regularizer."""
+        del z_mean, z_logvar, z_sampled
+        return self.beta * kl_loss
 
 @gin.configurable("s2_vae")
 class S2BetaVAE(BaseS2VAE):
@@ -751,3 +842,104 @@ class S2BetaTCVAE(BaseS2VAE):
   def unsupervised_regularizer(self, kl_loss, z_mean, z_logvar, z_sampled):
     tc = (self.beta - 1.) * vae.total_correlation(z_sampled, z_mean, z_logvar)
     return tc + kl_loss
+
+@gin.configurable("s2_factor_vae_cg")
+class S2FactorVAE_Bounding(BaseS2VAE):
+  """FactorVAE model."""
+
+  def __init__(self, factor_sizes, gamma=gin.REQUIRED, gamma_sup=gin.REQUIRED):
+    """Creates a semi-supervised FactorVAE model.
+
+    Implementing Eq. 2 of "Disentangling by Factorizing"
+    (https://arxiv.org/pdf/1802.05983).
+
+    Args:
+      factor_sizes: Size of each factor of variation.
+      gamma: Hyperparameter for the unsupervised regularizer.
+      gamma_sup: Hyperparameter for the supervised regularizer.
+    """
+    self.gamma = gamma
+    self.gamma_sup = gamma_sup
+    self.originals, self.smalls, self.bounds, self.weights = get_images()
+    super(S2FactorVAE_Bounding, self).__init__(factor_sizes, bounding_box=True)
+
+  def model_fn(self, features, labels, mode, params):
+    """TPUEstimator compatible model function."""
+    features, bounding_boxes = get_bounding_boxes(self.originals, self.smalls, self.bounds, self.weights, 64)
+    is_training = (mode == tf.estimator.ModeKeys.TRAIN)
+    labelled_features = labels[0]
+    labels = tf.to_float(labels[1])
+    data_shape = features.get_shape().as_list()[1:]
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      z_mean, z_logvar = self.gaussian_encoder(
+          features, is_training=is_training)
+      z_mean_labelled, _ = self.gaussian_encoder(
+          labelled_features, is_training=is_training)
+    z_sampled = self.sample_from_latent_distribution(z_mean, z_logvar)
+    z_shuffle = vae.shuffle_codes(z_sampled)
+    with tf.variable_scope(tf.get_variable_scope(), reuse=tf.AUTO_REUSE):
+      logits_z, probs_z = architectures.make_discriminator(
+          z_sampled, is_training=is_training)
+      _, probs_z_shuffle = architectures.make_discriminator(
+          z_shuffle, is_training=is_training)
+    reconstructions = self.decode(z_sampled, data_shape, is_training)
+    per_sample_loss = losses.make_reconstruction_loss(features, reconstructions)+tf.convert_to_tensor(2, dtype=tf.float32)*losses.make_reconstruction_loss(bounding_boxes*features, bounding_boxes*reconstructions)
+    reconstruction_loss = tf.reduce_mean(per_sample_loss)
+    kl_loss = compute_gaussian_kl(z_mean, z_logvar)
+    standard_vae_loss = tf.add(reconstruction_loss, kl_loss, name="VAE_loss")
+    # tc = E[log(p_real)-log(p_fake)] = E[logit_real - logit_fake]
+    tc_loss_per_sample = logits_z[:, 0] - logits_z[:, 1]
+    tc_loss = tf.reduce_mean(tc_loss_per_sample, axis=0)
+    regularizer = kl_loss + self.gamma * tc_loss
+    gamma_annealed = make_annealer(self.gamma_sup, tf.train.get_global_step())
+    supervised_loss = make_supervised_loss(z_mean_labelled, labels,
+                                           self.factor_sizes)
+    s2_factor_vae_loss = tf.add(
+        standard_vae_loss,
+        self.gamma * tc_loss + gamma_annealed * supervised_loss,
+        name="s2_factor_VAE_loss")
+    discr_loss = tf.add(
+        0.5 * tf.reduce_mean(tf.log(probs_z[:, 0])),
+        0.5 * tf.reduce_mean(tf.log(probs_z_shuffle[:, 1])),
+        name="discriminator_loss")
+    if mode == tf.estimator.ModeKeys.TRAIN:
+      optimizer_vae = optimizers.make_vae_optimizer()
+      optimizer_discriminator = optimizers.make_discriminator_optimizer()
+      all_variables = tf.trainable_variables()
+      encoder_vars = [var for var in all_variables if "encoder" in var.name]
+      decoder_vars = [var for var in all_variables if "decoder" in var.name]
+      discriminator_vars = [var for var in all_variables \
+                            if "discriminator" in var.name]
+      update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+      train_op_vae = optimizer_vae.minimize(
+          loss=s2_factor_vae_loss,
+          global_step=tf.train.get_global_step(),
+          var_list=encoder_vars + decoder_vars)
+      train_op_discr = optimizer_discriminator.minimize(
+          loss=-discr_loss,
+          global_step=tf.train.get_global_step(),
+          var_list=discriminator_vars)
+      train_op = tf.group(train_op_vae, train_op_discr, update_ops)
+      tf.summary.scalar("reconstruction_loss", reconstruction_loss)
+      logging_hook = tf.train.LoggingTensorHook({
+          "loss": s2_factor_vae_loss,
+          "reconstruction_loss": reconstruction_loss
+      },
+                                                every_n_iter=50)
+      return TPUEstimatorSpec(
+          mode=mode,
+          loss=s2_factor_vae_loss,
+          train_op=train_op,
+          training_hooks=[logging_hook])
+    elif mode == tf.estimator.ModeKeys.EVAL:
+      return TPUEstimatorSpec(
+          mode=mode,
+          loss=s2_factor_vae_loss,
+          eval_metrics=(make_metric_fn("reconstruction_loss", "regularizer",
+                                       "kl_loss", "supervised_loss"), [
+                                           reconstruction_loss, regularizer,
+                                           kl_loss, supervised_loss
+                                       ]))
+    else:
+      raise NotImplementedError("Eval mode not supported.")
+    
