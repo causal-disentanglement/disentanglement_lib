@@ -1,10 +1,15 @@
-# CANDLE Experiments
-This repository contains reproducible experiments run on the [CANDLE](https://causal-disentanglement.github.io/CANDLE/) dataset. The experiments extend [disentanglement_lib](https://github.com/google-research/disentanglement_lib/).
+# IITH-CANDLE Experiments
+[![arXiv](https://img.shields.io/badge/arXiv-1234.56789-b31b1b.svg)](https://arxiv.org/abs/1234.56789)
+[![AAAI](https://img.shields.io/badge/AAAI%202022-identifier-275161.svg)](https://aaai.org/Conferences/AAAI-22/)
+[![Get the dataset](https://img.shields.io/badge/Get%20the%20Dataset-4285F4?logo=googledrive&logoColor=white)](https://drive.google.com/drive/folders/11w267LWI8tbWhf1SR8kd-l6fP9WbJwNL)
+[![GitHub](https://img.shields.io/github/license/causal-disentanglement/disentanglement_lib)](https://github.com/causal-disentanglement/IITH-CANDLE/blob/main/LICENSE)
 
-## Setup
+This repository contains reproducible experiments run on the [IITH-CANDLE](https://causal-disentanglement.github.io/IITH-CANDLE/) dataset. The experiments extend [disentanglement_lib](https://github.com/google-research/disentanglement_lib/).
+
+# Setup
 1. Install this fork using the [instructions](#usage).
 
-2. Download the [CANDLE](https://causal-disentanglement.github.io/CANDLE/) dataset and set the `path` variable in `disentanglement_lib/data/ground_truth/causal_dataset.py` to the path where the dataset was downloaded.
+2. Download the [IITH-CANDLE](https://causal-disentanglement.github.io/IITH-CANDLE/) dataset and set the `path` variable in `disentanglement_lib/data/ground_truth/causal_dataset.py` to the path where the dataset was downloaded.
 
 3. Select/import the requied disentanglement method to run from `examples/example.py`.
 
@@ -20,6 +25,23 @@ This repository contains reproducible experiments run on the [CANDLE](https://ca
     ```
 
 Note: Pre-trained classifier used in evaluating CG score is already provided in `disentanglement_lib/methods/trained_models`. One can train a new model for this task or use it as is.
+
+# How to cite our work
+If you use *IITH-CANDLE*, please consider citing:
+```
+@article{candle, 
+title={On Causally Disentangled Representations},  
+journal={Proceedings of the AAAI Conference on Artificial Intelligence}, 
+author={Abbavaram Gowtham Reddy, Benin Godfrey L, and Vineeth N Balasubramanian}, 
+year={2022},
+month={February}
+}
+```
+
+# License
+This work is licensed under the [Apache License 2.0](https://choosealicense.com/licenses/apache-2.0/) and the dataset itself is licensed under the [Creative Commons Attribution 4.0 International License](https://creativecommons.org/licenses/by/4.0/).
+
+Please refer to the commit history of this fork for a statement of changes.
 
 # disentanglement_lib
 ![Sample visualization](https://github.com/google-research/disentanglement_lib/blob/master/sample.gif?raw=true)
